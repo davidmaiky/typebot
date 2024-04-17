@@ -10,9 +10,9 @@ import { getSession } from '../queries/getSession'
 import { continueBotFlow } from '../continueBotFlow'
 import { decrypt } from '@typebot.io/lib/api/encryption/decrypt'
 import { saveStateToDatabase } from '../saveStateToDatabase'
-import prisma from '@typebot.io/lib/prisma'
 import { isDefined } from '@typebot.io/lib/utils'
 import { Reply } from '../types'
+import { PrismaClient } from '@typebot.io/prisma'
 
 type Props = {
   receivedMessage: WhatsAppIncomingMessage
@@ -31,9 +31,12 @@ export const resumeWhatsAppFlow = async ({
   phoneNumberId,
   contact,
 }: Props): Promise<{ message: string }> => {
+  console.log('fire')
   const messageSendDate = new Date(Number(receivedMessage.timestamp) * 1000)
+  console.log('messageSendDate:', messageSendDate)
   const messageSentBefore3MinutesAgo =
     messageSendDate.getTime() < Date.now() - 180000
+  console.log('messageSentBefore3MinutesAgo:', messageSentBefore3MinutesAgo)
   if (messageSentBefore3MinutesAgo) {
     console.log('Message is too old', messageSendDate.getTime())
     return {
@@ -43,27 +46,31 @@ export const resumeWhatsAppFlow = async ({
 
   const isPreview = workspaceId === undefined || credentialsId === undefined
 
+  console.log('get credentials', credentialsId)
   const credentials = await getCredentials({ credentialsId, isPreview })
 
+  console.log('credentials', isDefined(credentials))
   if (!credentials) {
     console.error('Could not find credentials')
     return {
       message: 'Message received',
     }
   }
-
+  console.log('yes')
   if (credentials.phoneNumberId !== phoneNumberId && !isPreview) {
     console.error('Credentials point to another phone ID, skipping...')
     return {
       message: 'Message received',
     }
   }
-
+  console.log('yes2')
   const reply = await getIncomingMessageContent({
     message: receivedMessage,
     workspaceId,
     accessToken: credentials?.systemUserAccessToken,
   })
+
+  console.log('incoming message content:', reply)
 
   const session = await getSession(sessionId)
 
@@ -72,6 +79,7 @@ export const resumeWhatsAppFlow = async ({
     isDefined(session.state.expiryTimeout) &&
     session?.updatedAt.getTime() + session.state.expiryTimeout < Date.now()
 
+  console.log('Process')
   const resumeResponse =
     session && !isSessionExpired
       ? await continueBotFlow(reply, {
@@ -86,6 +94,8 @@ export const resumeWhatsAppFlow = async ({
           contact,
         })
       : { error: 'workspaceId not found' }
+
+  console.log('resumeResponse:', resumeResponse)
 
   if ('error' in resumeResponse) {
     console.log('Chat not starting:', resumeResponse.error)
@@ -189,6 +199,9 @@ const getCredentials = async ({
 
   if (!credentialsId) return
 
+  console.log('prisma client')
+  const prisma = new PrismaClient()
+  console.log('prisma go', new Date().toISOString())
   const credentials = await prisma.credentials.findUnique({
     where: {
       id: credentialsId,
@@ -198,11 +211,14 @@ const getCredentials = async ({
       iv: true,
     },
   })
+  console.log('prisma done')
   if (!credentials) return
+  console.log('decrypt')
   const data = (await decrypt(
     credentials.data,
     credentials.iv
   )) as WhatsAppCredentials['data']
+  console.log('decrypted')
   return {
     systemUserAccessToken: data.systemUserAccessToken,
     phoneNumberId: data.phoneNumberId,
